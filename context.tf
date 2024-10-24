@@ -1,6 +1,4 @@
 #
-# ONLY EDIT THIS FILE IN github.com/cloudposse/terraform-null-label
-# All other instances of this file should be a copy of that one
 #
 #
 # Copy this file from https://github.com/cloudposse/terraform-null-label/blob/master/exports/context.tf
@@ -276,4 +274,3 @@ variable "descriptor_formats" {
     EOT
 }
 
-#### End of copy of cloudposse/terraform-null-label/variables.tf
