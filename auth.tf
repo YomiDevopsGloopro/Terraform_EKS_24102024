@@ -1,64 +1,41 @@
-
 locals {
   # Extract the cluster certificate for use in OIDC configuration
   certificate_authority_data = try(aws_eks_cluster.default[0].certificate_authority[0]["data"], "")
 
-  eks_policy_short_abbreviation_map = {
-    # List available policies with `aws eks list-access-policies --output table`
-
-    Admin        = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy"
-    ClusterAdmin = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-    Edit         = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
-    View         = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
-    # Add new policies here
+  # Map of simplified EKS policies used in Gloopro's setup
+  eks_policy_abbreviation_map = {
+    "ClusterAdmin" = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+    "View"         = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
   }
 
-  eks_policy_abbreviation_map = merge({ for k, v in local.eks_policy_short_abbreviation_map : format("AmazonEKS%sPolicy", k) => v },
-  local.eks_policy_short_abbreviation_map)
-
-
-  # Expand abbreviated access policies to full ARNs
-  access_entry_expanded_map = { for k, v in var.access_entry_map : k => merge({
-    # Expand abbreviated policies to full ARNs
-    access_policy_associations = { for kk, vv in v.access_policy_associations : try(local.eks_policy_abbreviation_map[kk], kk) => vv }
-    # Copy over all other fields
-    }, { for kk, vv in v : kk => vv if kk != "access_policy_associations" })
-  }
-
-  # Replace membership in "system:masters" group with association to "ClusterAdmin" policy
-  access_entry_map = { for k, v in local.access_entry_expanded_map : k => merge({
-    # Remove "system:masters" group from standard users
-    kubernetes_groups = [for group in v.kubernetes_groups : group if group != "system:masters" || v.type != "STANDARD"]
-    access_policy_associations = merge(
-      # copy all existing associations
-      v.access_policy_associations,
-      # add "ClusterAdmin" policy if the user was in "system:masters" group and is a standard user
-      contains(v.kubernetes_groups, "system:masters") && v.type == "STANDARD" ? {
-        "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" = {
-          access_scope = {
-            type       = "cluster"
-            namespaces = null
-          }
-        }
-      } : {}
-    )
-    # Copy over all other fields
-    }, { for kk, vv in v : kk => vv if kk != "kubernetes_groups" && kk != "access_policy_associations" })
-  }
-
-  eks_access_policy_association_product_map = merge(flatten([
-    for k, v in local.access_entry_map : [for kk, vv in v.access_policy_associations : { format("%s-%s", k, kk) = {
-      principal_arn = k
-      policy_arn    = kk
+  # Expand access policies to full ARNs if abbreviated in access_entry_map
+  access_entry_expanded_map = { 
+    for key, entry in var.access_entry_map : 
+    key => merge(entry, {
+      access_policy_associations = { 
+        for policy, assoc in entry.access_policy_associations : 
+        try(local.eks_policy_abbreviation_map[policy], policy) => assoc 
       }
-    }]
-  ])...)
+    })
+  }
+
+  # Final map replacing "system:masters" with "ClusterAdmin" policy for STANDARD users
+  access_entry_map = {
+    for key, entry in local.access_entry_expanded_map : key => merge(entry, {
+      kubernetes_groups = [for group in entry.kubernetes_groups : group if group != "system:masters" || entry.type != "STANDARD"],
+      access_policy_associations = merge(
+        entry.access_policy_associations,
+        contains(entry.kubernetes_groups, "system:masters") && entry.type == "STANDARD" ? {
+          "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" = {}
+        } : {}
+      )
+    })
+  }
 }
 
-# The preferred way to keep track of entries is by key, but we also support list,
-# because keys need to be known at plan time, but list values do not.
+# Main EKS access entry resource based on `access_entry_map`
 resource "aws_eks_access_entry" "map" {
-  for_each = local.enabled ? local.access_entry_map : {}
+  for_each = var.enabled ? local.access_entry_map : {}
 
   cluster_name      = local.eks_cluster_id
   principal_arn     = each.key
@@ -68,8 +45,14 @@ resource "aws_eks_access_entry" "map" {
   tags = module.this.tags
 }
 
+# EKS access policy association resource for users in `access_entry_map`
 resource "aws_eks_access_policy_association" "map" {
-  for_each = local.enabled ? local.eks_access_policy_association_product_map : {}
+  for_each = var.enabled ? {
+    for key, entry in local.access_entry_map : key => {
+      principal_arn = key
+      policy_arn    = entry.access_policy_associations
+    }
+  } : {}
 
   cluster_name  = local.eks_cluster_id
   principal_arn = each.value.principal_arn
@@ -81,11 +64,9 @@ resource "aws_eks_access_policy_association" "map" {
   }
 }
 
-# We could combine all the list access entries into a single resource,
-# but separating them by category minimizes the ripple effect of changes
-# due to adding and removing items from the list.
+# Single access entry for `STANDARD` type, linked to `access_entries`
 resource "aws_eks_access_entry" "standard" {
-  count = local.enabled ? length(var.access_entries) : 0
+  count = var.enabled ? length(var.access_entries) : 0
 
   cluster_name      = local.eks_cluster_id
   principal_arn     = var.access_entries[count.index].principal_arn
@@ -93,38 +74,4 @@ resource "aws_eks_access_entry" "standard" {
   type              = "STANDARD"
 
   tags = module.this.tags
-}
-
-resource "aws_eks_access_entry" "linux" {
-  count = local.enabled ? length(lookup(var.access_entries_for_nodes, "EC2_LINUX", [])) : 0
-
-  cluster_name  = local.eks_cluster_id
-  principal_arn = var.access_entries_for_nodes.EC2_LINUX[count.index]
-  type          = "EC2_LINUX"
-
-  tags = module.this.tags
-}
-
-resource "aws_eks_access_entry" "windows" {
-  count = local.enabled ? length(lookup(var.access_entries_for_nodes, "EC2_WINDOWS", [])) : 0
-
-  cluster_name  = local.eks_cluster_id
-  principal_arn = var.access_entries_for_nodes.EC2_WINDOWS[count.index]
-  type          = "EC2_WINDOWS"
-
-  tags = module.this.tags
-}
-
-resource "aws_eks_access_policy_association" "list" {
-  count = local.enabled ? length(var.access_policy_associations) : 0
-
-  cluster_name  = local.eks_cluster_id
-  principal_arn = var.access_policy_associations[count.index].principal_arn
-  policy_arn = try(local.eks_policy_abbreviation_map[var.access_policy_associations[count.index].policy_arn],
-  var.access_policy_associations[count.index].policy_arn)
-
-  access_scope {
-    type       = var.access_policy_associations[count.index].access_scope.type
-    namespaces = var.access_policy_associations[count.index].access_scope.namespaces
-  }
 }
