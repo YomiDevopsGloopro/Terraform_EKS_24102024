@@ -1,3 +1,5 @@
+# variables.tf
+
 variable "namespace" {
   type        = string
   description = "A short identifier for the organization or project to help ensure globally unique resource names."
@@ -19,7 +21,12 @@ variable "name" {
 variable "subnet_ids" {
   type        = list(string)
   description = "A list of subnet IDs to launch the cluster in."
-  default     = ["subnet-0ec69f1dbb29feaa8", "subnet-043514ff6648f3a9b", "subnet-0abf18f6c4a8427e2", "subnet-0a88ef65881802333"]
+  default     = [
+    "subnet-0ec69f1dbb29feaa8",
+    "subnet-043514ff6648f3a9b",
+    "subnet-0abf18f6c4a8427e2",
+    "subnet-0a88ef65881802333"
+  ]
 }
 
 variable "associated_security_group_ids" {

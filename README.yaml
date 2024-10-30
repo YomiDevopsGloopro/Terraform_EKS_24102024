@@ -14,4 +14,3 @@ introduction: |
   - IAM Role to allow the cluster to access other AWS services
   - Configurable security group rules for controlled access
   - Options to manage access entries for EKS cluster
-
