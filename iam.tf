@@ -1,3 +1,17 @@
+# Declare the label module
+module "label" {
+  source  = "cloudposse/label/null"
+  version = "0.25.0" # Use the appropriate version
+
+  namespace   = var.namespace
+  environment = var.environment
+  name        = var.name
+  tags        = var.tags  # Ensure you pass any other required variables from your configuration
+}
+
+# Declare the data resource for aws_partition
+data "aws_partition" "current" {}
+
 locals {
   create_eks_service_role = local.enabled && var.create_eks_service_role
   eks_service_role_arn    = local.create_eks_service_role ? one(aws_iam_role.default[*].arn) : var.eks_cluster_service_role_arn

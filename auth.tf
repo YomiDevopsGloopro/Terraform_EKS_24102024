@@ -1,3 +1,17 @@
+data "tls_certificate" "cluster" {
+  count = local.enabled && var.oidc_provider_enabled ? 1 : 0
+  url   = one(aws_eks_cluster.default[*].identity[0].oidc[0].issuer)
+}
+
+resource "aws_iam_openid_connect_provider" "default" {
+  count = local.enabled && var.oidc_provider_enabled ? 1 : 0
+  url   = one(aws_eks_cluster.default[*].identity[0].oidc[0].issuer)
+  tags  = module.this.tags  # Make sure this is correctly referencing the module
+
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [one(data.tls_certificate.cluster[*].certificates[0].sha1_fingerprint)]
+}
+
 locals {
   # Extract the cluster certificate for use in OIDC configuration
   certificate_authority_data = try(aws_eks_cluster.default[0].certificate_authority[0]["data"], "")
@@ -42,7 +56,7 @@ resource "aws_eks_access_entry" "map" {
   kubernetes_groups = each.value.kubernetes_groups
   type              = each.value.type
 
-  tags = module.this.tags
+  tags = module.this.tags  # Ensure this references the module correctly
 }
 
 # EKS access policy association resource for users in `access_entry_map`
@@ -73,5 +87,5 @@ resource "aws_eks_access_entry" "standard" {
   kubernetes_groups = var.access_entries[count.index].kubernetes_groups
   type              = "STANDARD"
 
-  tags = module.this.tags
+  tags = module.this.tags  # Ensure this references the module correctly
 }

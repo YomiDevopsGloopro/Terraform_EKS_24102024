@@ -1,26 +1,17 @@
-# context.tf
-
-module "this" {
+module "this_context" {
   source  = "cloudposse/label/null"
   version = "0.25.0" # requires Terraform >= 0.13.0
 
-  enabled             = var.enabled
-  namespace           = var.namespace          // Keep as is, from variables.tf
-  environment         = var.environment        // Keep as is, from variables.tf
-  module_stage        = var.stage              // Renamed for uniqueness
-  module_name         = var.name               // Renamed for uniqueness
-  delimiter           = var.delimiter
-  attributes          = var.attributes
-  tags                = var.tags
-  labels_as_tags      = var.labels_as_tags
+  enabled       = var.enabled                # Keep as is, from variables.tf
+  namespace     = var.namespace              # Keep as is, from variables.tf
+  environment   = var.environment            # Keep as is, from variables.tf
+  delimiter      = var.delimiter
+  attributes    = var.attributes
+  tags          = var.tags
+  labels_as_tags = var.labels_as_tags
 }
 
-variable "enabled" {
-  type        = bool
-  default     = true
-  description = "Set to false to prevent the module from creating any resources."
-}
-
+# Removed the enabled variable declaration
 variable "module_namespace" {
   type        = string
   default     = null
@@ -33,16 +24,10 @@ variable "module_environment" {
   description = "Module specific environment ID."
 }
 
-variable "module_stage" {
+variable "stage" {
   type        = string
   default     = null
   description = "ID element to specify the stage, e.g., 'build', 'test', 'deploy'."
-}
-
-variable "module_name" {
-  type        = string
-  default     = null
-  description = "Module specific component name."
 }
 
 variable "delimiter" {

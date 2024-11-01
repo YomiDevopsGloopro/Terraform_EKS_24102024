@@ -1,19 +1,23 @@
+# Main configuration for EKS and related resources
+
 locals {
-  enabled                  = var.enabled
-  use_ipv6                 = var.kubernetes_network_ipv6_enabled
-  eks_cluster_id           = one(aws_eks_cluster.default[*].id)
+  enabled                   = var.enabled
+  use_ipv6                  = var.kubernetes_network_ipv6_enabled
+  eks_cluster_id            = one(aws_eks_cluster.default[*].id)
   cloudwatch_log_group_name = "/aws/eks/${var.namespace}-${var.environment}-${var.name}/cluster"
 }
 
 module "this" {
   source  = "cloudposse/label/null"
-  version = "0.25.0"
+  version = "0.25.0" # Use the appropriate version
 
-  enabled     = var.enabled
-  namespace   = var.namespace
-  environment = var.environment
-  name        = var.name
-  tags        = var.tags
+  enabled       = var.enabled
+  namespace     = var.namespace
+  environment   = var.environment
+  delimiter      = var.delimiter
+  attributes    = var.attributes
+  tags          = var.tags
+  labels_as_tags = var.labels_as_tags
 }
 
 resource "aws_cloudwatch_log_group" "default" {
@@ -63,40 +67,4 @@ resource "aws_eks_cluster" "default" {
   ]
 }
 
-# IAM OpenID Connect Provider for Service Accounts in Kubernetes Cluster
-data "tls_certificate" "cluster" {
-  count = local.enabled && var.oidc_provider_enabled ? 1 : 0
-  url   = one(aws_eks_cluster.default[*].identity[0].oidc[0].issuer)
-}
 
-resource "aws_iam_openid_connect_provider" "default" {
-  count = local.enabled && var.oidc_provider_enabled ? 1 : 0
-  url   = one(aws_eks_cluster.default[*].identity[0].oidc[0].issuer)
-  tags  = module.this.tags
-
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [one(data.tls_certificate.cluster[*].certificates[0].sha1_fingerprint)]
-}
-
-resource "aws_eks_addon" "cluster" {
-  for_each = local.enabled ? { for addon in var.addons : addon.addon_name => addon } : {}
-
-  cluster_name                = one(aws_eks_cluster.default[*].name)
-  addon_name                  = each.key
-  addon_version               = lookup(each.value, "addon_version", null)
-  configuration_values        = lookup(each.value, "configuration_values", null)
-  service_account_role_arn    = lookup(each.value, "service_account_role_arn", null)
-
-  tags = module.this.tags
-
-  depends_on = [
-    aws_eks_cluster.default,
-    aws_iam_openid_connect_provider.default,
-  ]
-
-  timeouts {
-    create = each.value.create_timeout
-    update = each.value.update_timeout
-    delete = each.value.delete_timeout
-  }
-}
